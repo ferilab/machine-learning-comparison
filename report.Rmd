@@ -1,0 +1,131 @@
+---
+title: "A comparison of 23 popular machine learning methods"
+author: "Fereidoun Mianji"
+date: "11/2/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+1. Introduction
+
+This report presents the results of comparing the performance of 23 popular machine learning techniques on mnist_27 dataset. The dataset includes labled train and test sets which are handwritten 2s and 7s. This pattern recognission or classification job is done using the default parameters of the techniques. At the end, based on the output of all techniques (on the test set), an ensemble predictor is applied using the majority vote algorithm and its accuracy is calculated and compared with the single techniques.
+
+2. Data preparation 
+
+As the number of methods are being used together is high, one may need to install the necessary packages first. The code shows which pckages are probably necessary as they are often not included in the standard R installation. The libraries are also refered to in this part of the code. Not to mention, one may need to install even more packages based on their own R configuration.
+
+Note: the install commands are commented out because the required ones vary from computer to computer 
+
+```{r installing packages (if necessary) and loading required libs, warning=FALSE, message=FALSE}
+# install.packages('e1071')
+# install.packages("GAMBoost")
+# install.packages("mboost")
+# install.packages('kknn')
+# install.packages("LiblineaR")
+
+# Libraries to load
+
+library(e1071)
+library(GAMBoost)
+library(mboost)
+library(gam)
+library(kknn)
+library(LiblineaR)
+
+### General libraries to load
+# And these are the general ones that you need to call anyway
+
+library(tidyverse)
+library(dslabs)
+library(caret)
+library(randomForest)
+library(rpart)
+library(Rborist)
+
+mnist_27 <- data(mnist_27) %>%
+save(mnist_27, file = 'rdas/mnist_27.rda')
+
+models <- c("glm", "lda", "naive_bayes", "svmLinear", "gamboost",
+            "gamLoess", "qda", "knn", "kknn", "loclda", "gam", "rf",
+            "ranger","wsrf", "Rborist", "avNNet", "mlp", "monmlp", "gbm",
+            "adaboost", "svmRadial", "svmRadialCost", "svmRadialSigma")
+save(models, file = 'rdas/models')
+
+```
+
+2. Training the algorithms
+
+The first step after data preparation as any other machine learning job is training. The train set of the data is used to this end and the methods' parameters are as default. This part may take from few to several minutes depending on the computer configuration.
+
+load('rdas/mnist_27.rda')
+load('rdas/models')
+
+train_all <- map(models, function(method){
+  train(y ~ x_1 + x_2, data = mnist_27$train, method = method)
+}) %>% suppressWarnings()
+save(train_all, file = 'rdas/train_all')
+
+```{r the training phase, include=FALSE, message=FALSE}
+load('rdas/mnist_27.rda')
+load('rdas/models')
+
+train_all <- map(models, function(method){
+  train(y ~ x_1 + x_2, data = mnist_27$train, method = method)
+}) %>% suppressWarnings()
+save(train_all, file = 'rdas/train_all')
+```
+
+3. Testing the methods
+
+To compare the accuracy of the techniques, they all are used to do prediction of the test set of mnist_27. The results are then put together in a table for presentation. Althogh in every run the results change slightly, gamLoess, knn, avnett, and svm-based (except linear) techniques often (thus, in average) outperform the others. 
+
+```{r predictions are made by methods and their accuracies are compared, warning=FALSE, message=FALSE}
+library(tidyverse)
+library(gam)
+library(caret)
+load('rdas/mnist_27.rda')
+load('rdas/train_all')
+load('rdas/models')
+
+predictions <- sapply(1:23, function(i){
+  predict(train_all[i], mnist_27$test)
+})
+
+result_all <- matrix(unlist(predictions), nrow = 200)
+
+Acc <- sapply(1:23, function(i){
+  y_hat_tech <- predict(train_all[i], mnist_27$test)
+  confusionMatrix(y_hat_tech[[1]], mnist_27$test$y)$overall["Accuracy"]
+})
+methods_acc <- tibble(models, Acc)
+print(methods_acc, n=23)
+```
+
+4. Prediction by techniques ensemble
+
+Finally, to see if a combination of all these techniques, not only the best ones, results in a better accuracy using the majority vote approach, the following code is run and the accuracies are compared to the ensemble accuracy (red line) in the figure.
+
+```{r predicting based on majority vote, warning=FALSE, message=FALSE}
+m <- as.numeric(result_all)
+m <- matrix(m, 200,23)
+maj_vote <- as.data.frame(rowSums(m)) %>% rename(vote = `rowSums(m)`) %>% 
+  mutate(vote = ifelse(vote < 106, 2, 7)) # for 7 to be in majority, it needs at least 12 out of 23 votes (12x7+11x2=106)
+temp <- as.list(maj_vote)
+temp <- factor(temp[[1]])
+ensemble_acc <- confusionMatrix(temp , mnist_27$test$y)$overall["Accuracy"]
+
+methods_acc %>% ggplot(aes(models, Acc)) +
+  geom_point() + 
+  geom_abline(intercept = ensemble_acc, slope = 0, color = 'red') +
+  ggtitle('Performance comparison: methods (dots) and majority vote (red line)') +
+  xlab('Method') +
+  ylab('Accuracy') +
+  coord_flip() +
+  ggsave('fig/methods_acc.png')
+```
+
+As can be seen, the ensemble outdoes most of the techniques but is a bit poorer that some like monmlp and the ones mentioned above. It is worth mentioning that the results obtained in this experiments, i.e., the superiority of some techniques to others may change using anoher type of data set of different nature.
+
